@@ -22,7 +22,6 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdint.h>
-#include <stdlib.h>
 #include "stm32f0xx.h"
 #include <lcd_stm32f0.h>
 #include <lcd_stm32f0.c>
@@ -63,21 +62,11 @@ uint8_t j=0;
 uint8_t k = 0;
 uint8_t mode = 0;
 // Variables for Mode 3
+uint8_t leds_state_sparkle = 0;
+int sparkle_off_index = 0;
+int sparkle_delay_state = 0; // 0: initial random, 1: hold, 2: turning off
+uint16_t check_current_delay=999;
 
-// Sparkle mode states
-typedef enum {
-    SPARKLE_ALL_OFF,
-    SPARKLE_SET_RANDOM,
-    SPARKLE_HOLD_ON,
-    SPARKLE_TURNING_OFF
-} SparkleState;
-
- SparkleState sparkle_state = SPARKLE_ALL_OFF;
- uint8_t sparkle_leds = 0;   // current LEDs ON as bitmask
- uint8_t leds_to_turn_off = 0;
- uint32_t sparkle_timer = 0;
- uint32_t sparkle_delay = 0;
- uint16_t check_current_delay=999;
 
 /* USER CODE BEGIN PV */
 // TODO: Define input variables
@@ -93,8 +82,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
 
 int get_random_range(int min, int max);
 void turn_on_random_leds(void);
-void sw0_delay(uint16_t new_delay);
-
 /* USER CODE BEGIN PFP */
 void TIM16_IRQHandler(void);
 /* USER CODE END PFP */
@@ -248,51 +235,61 @@ int main(void)
 
   // --- Button 3: Mode 3 (Sparkle) ---
       if (HAL_GPIO_ReadPin(Button3_GPIO_Port, Button3_Pin) == GPIO_PIN_RESET) {
-    HAL_Delay(10);  // simple debounce, replace with better method if desired
-    if (HAL_GPIO_ReadPin(Button3_GPIO_Port, Button3_Pin) == GPIO_PIN_RESET) {
-        mode = 3;
-        sparkle_state = SPARKLE_ALL_OFF;
-        sparkle_leds = 0;
-        leds_to_turn_off = 0;
-        sparkle_timer = HAL_GetTick();
-
-        while (HAL_GPIO_ReadPin(Button3_GPIO_Port, Button3_Pin) == GPIO_PIN_RESET) {}
-        HAL_Delay(10);
-    }
-}
-
+          HAL_Delay(10);
+          mode=0;
+          if (HAL_GPIO_ReadPin(Button3_GPIO_Port, Button3_Pin) == GPIO_PIN_RESET) {
+              mode = (mode == 3) ? 0 : 3;
+              if (mode == 3) {
+                  for (int i = 0; i < 8; i++) {
+                    HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_RESET);
+                }
+              } 
+              while (HAL_GPIO_ReadPin(Button3_GPIO_Port, Button3_Pin) == GPIO_PIN_RESET) {}
+              
+          }
+      }
 
       // --- Mode 3 Logic: This section runs the sparkle animation ---
-  
+      if (mode == 3) {
+          // 1. Turn on random LEDs
+          turn_on_random_leds();
+
+          // 2. Hold for a random delay (100-1500ms)
+          HAL_Delay(get_random_range(100, 1500));
+
+          // 3. Turn off LEDs one by one with a random delay (0-100ms)
+          uint8_t leds_to_turn_off_mask = leds_state_sparkle;
+          while (leds_to_turn_off_mask > 0) {
+              if (mode != 3) break; // Exit if mode changes while in the loop
+
+              int random_led_index = get_random_range(0, 7);
+              // Find an LED that's currently on
+              if ((leds_to_turn_off_mask >> random_led_index) & 0x01) {
+                  HAL_GPIO_WritePin(led_ports[random_led_index], led_pins[random_led_index], GPIO_PIN_RESET);
+                  leds_to_turn_off_mask &= ~(1 << random_led_index); // Turn off the bit
+                  HAL_Delay(get_random_range(0, 255)); // Delay between turning off
+              }
+          }
+          for (int i = 0; i < 8; i++) {
+                    HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_RESET);
+                } // Ensure all are off before repeating
+      }
   /* USER CODE END 3 */
 
 }
 }
-uint8_t get_random_led_pattern(void) {
-    // Returns random 8-bit pattern (0-255)
-    return (uint8_t)(rand() % 256);  // Or your custom RNG
+int get_random_range(int min, int max) {
+    return (rand() % (max - min + 1)) + min;
 }
 
-uint32_t get_random_delay(uint32_t min_ms, uint32_t max_ms) {
-    return min_ms + (rand() % (max_ms - min_ms + 1));
-}
-
-int get_random_led_index(uint8_t mask) {
-    // Pick random LED ON in mask
-    // If no LEDs ON, return -1
-    uint8_t count = 0;
-    for (int i=0; i<8; i++) if ((mask >> i) & 1) count++;
-    if (count == 0) return -1;
-    int target = rand() % count;
-    for (int i=0; i<8; i++) {
-        if ((mask >> i) & 1) {
-            if (target == 0) return i;
-            target--;
+void turn_on_random_leds(void) {
+    leds_state_sparkle = (uint8_t)rand();
+    for (int i = 0; i < 8; i++) {
+        if ((leds_state_sparkle >> i) & 0x01) {
+            HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_SET);
         }
     }
-    return -1;
 }
-
 void sw0_delay (uint16_t new_delay){
   HAL_TIM_Base_Stop_IT(&htim16);//stop the timer
 
@@ -536,64 +533,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
                 }
                 HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_RESET);
                 break;
-            case 3: //button 0 for delay and sped up
-            uint32_t now = HAL_GetTick();
-
-        switch (sparkle_state) {
-            case SPARKLE_ALL_OFF:
-                // Ensure all LEDs off
-                for (int i=0; i<8; i++) {
-                    HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_RESET);
-                }
-                sparkle_state = SPARKLE_SET_RANDOM;
-                break;
-
-            case SPARKLE_SET_RANDOM:
-                // Set a random pattern of LEDs ON
-                sparkle_leds = get_random_led_pattern();
-                leds_to_turn_off = sparkle_leds;
-
-                // Set LEDs ON according to sparkle_leds bitmask
-                for (int i=0; i<8; i++) {
-                    if ((sparkle_leds >> i) & 1)
-                        HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_SET);
-                    else
-                        HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_RESET);
-                }
-
-                // Hold ON for random delay 100-1500 ms
-                sparkle_delay = get_random_delay(100, 1500);
-                sparkle_timer = now;
-                sparkle_state = SPARKLE_HOLD_ON;
-                break;
-
-            case SPARKLE_HOLD_ON:
-                if (now - sparkle_timer >= sparkle_delay) {
-                    sparkle_state = SPARKLE_TURNING_OFF;
-                    sparkle_timer = now;
-                    // Next step: start turning off LEDs
-                }
-                break;
-
-            case SPARKLE_TURNING_OFF:
-                // Turn off LEDs one at a time with ~100ms random delay
-                if (now - sparkle_timer >= get_random_delay(50, 100)) {
-                    int led_index = get_random_led_index(leds_to_turn_off);
-                    if (led_index >= 0) {
-                        HAL_GPIO_WritePin(led_ports[led_index], led_pins[led_index], GPIO_PIN_RESET);
-                        leds_to_turn_off &= ~(1 << led_index);
-                        sparkle_timer = now;  // reset timer for next LED off delay
-                    } else {
-                        // All LEDs off, restart sparkle
-                        sparkle_state = SPARKLE_SET_RANDOM;
-                    }
-                }
-                break;
-        }
-    
-    break;
             default:
-               
                 break;
         }
     }

@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdint.h>
+#include <stdlib.h>
 #include "stm32f0xx.h"
 #include <lcd_stm32f0.h>
 #include <lcd_stm32f0.c>
@@ -44,13 +45,6 @@
 
 /* Private variables ---------------------------------------------------------*/
 TIM_HandleTypeDef htim16;
-uint8_t SW0Pressed = 0;
-uint8_t SW1Pressed = 0;
-uint8_t SW2Pressed = 0;
-uint8_t SW3Pressed = 0;
-static uint8_t direction = 1; //1 forward
-
-uint32_t cnt = 0;
 
 /* USER CODE BEGIN PV */
 GPIO_TypeDef* led_ports[] = {LED0_GPIO_Port, LED1_GPIO_Port, LED2_GPIO_Port, LED3_GPIO_Port, LED4_GPIO_Port, LED5_GPIO_Port, LED6_GPIO_Port, LED7_GPIO_Port};
@@ -61,11 +55,10 @@ uint8_t i=0;
 uint8_t j=0;
 uint8_t k = 0;
 uint8_t mode = 0;
-// Variables for Mode 3
 uint8_t leds_state_sparkle = 0;
-int sparkle_off_index = 0;
-int sparkle_delay_state = 0; // 0: initial random, 1: hold, 2: turning off
 uint16_t check_current_delay=999;
+static uint8_t direction = 1; //1 forward
+uint32_t cnt = 0;
 
 
 /* USER CODE BEGIN PV */
@@ -81,9 +74,11 @@ static void MX_TIM16_Init(void);
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
 
 int get_random_range(int min, int max);
-void turn_on_random_leds(void);
+void random_leds(void);
 /* USER CODE BEGIN PFP */
 void TIM16_IRQHandler(void);
+void sw0_delay(uint16_t new_delay);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -189,6 +184,7 @@ int main(void)
             HAL_Delay(10); // Debounce on release
         }
     }
+    //button2
     if (HAL_GPIO_ReadPin(Button2_GPIO_Port, Button2_Pin) == GPIO_PIN_RESET) {
         // Debouncing: Wait a short time to make sure the press is stable
         HAL_Delay(10);
@@ -233,7 +229,7 @@ int main(void)
 
   }
 
-  // --- Button 3: Mode 3 (Sparkle) ---
+  // Button 3 Sparkle
       if (HAL_GPIO_ReadPin(Button3_GPIO_Port, Button3_Pin) == GPIO_PIN_RESET) {
           HAL_Delay(10);
           mode=0;
@@ -252,7 +248,7 @@ int main(void)
       // --- Mode 3 Logic: This section runs the sparkle animation ---
       if (mode == 3) {
           // 1. Turn on random LEDs
-          turn_on_random_leds();
+          random_leds();
 
           // 2. Hold for a random delay (100-1500ms)
           HAL_Delay(get_random_range(100, 1500));
@@ -282,7 +278,7 @@ int get_random_range(int min, int max) {
     return (rand() % (max - min + 1)) + min;
 }
 
-void turn_on_random_leds(void) {
+void random_leds(void) {
     leds_state_sparkle = (uint8_t)rand();
     for (int i = 0; i < 8; i++) {
         if ((leds_state_sparkle >> i) & 0x01) {
@@ -295,7 +291,7 @@ void sw0_delay (uint16_t new_delay){
 
   __HAL_TIM_SET_AUTORELOAD(&htim16,new_delay);
 
-  HAL_TIM_Base_Start_IT(&htim16);
+  HAL_TIM_Base_Start_IT(&htim16);//start the timer
 }
 /**
   * @brief System Clock Configuration

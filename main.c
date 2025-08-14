@@ -6,7 +6,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2023 STMicroelectronics.
+  * Copyright (c) 2025 STMicroelectronics.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -22,14 +22,14 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdint.h>
-#include <stdlib.h>
 #include "stm32f0xx.h"
-#include <lcd_stm32f0.h>
-#include <lcd_stm32f0.c>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+#define MAX_ITER 100
+#define FIXED_POINT_SCALE 1000000LL  // 10^6 scale factor
+#define ESCAPE_RADIUS_SQUARED (4LL * FIXED_POINT_SCALE)   // scaled 4.0
 
 /* USER CODE END PTD */
 
@@ -44,40 +44,38 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-TIM_HandleTypeDef htim16;
 
 /* USER CODE BEGIN PV */
-GPIO_TypeDef* led_ports[] = {LED0_GPIO_Port, LED1_GPIO_Port, LED2_GPIO_Port, LED3_GPIO_Port, LED4_GPIO_Port, LED5_GPIO_Port, LED6_GPIO_Port, LED7_GPIO_Port};
-uint16_t led_pins[] = {LED0_Pin, LED1_Pin, LED2_Pin, LED3_Pin, LED4_Pin, LED5_Pin, LED6_Pin, LED7_Pin};
+//TODO: Define and initialise the global varibales required
+/*
+  start_time
+  end_time
+  execution_time 
+  checksum: should be uint64_t
+  initial width and height maybe or you might opt for an array??
+*/
+uint32_t start_time = 0;       // Start time in ticks
+uint32_t end_time = 0;         // End time in ticks
+uint32_t execution_time = 0;   // Execution time in ticks (end_time - start_time)
+uint64_t checksum = 0;         // 64-bit checksum returned from mandelbrot function
 
-/* USER CODE END PV */
-uint8_t i=0;
-uint8_t j=0;
-uint8_t k = 0;
-uint8_t mode = 0;
-uint8_t leds_state_sparkle = 0;
-uint16_t check_current_delay=999;
-static uint8_t direction = 1; //1 forward
-uint32_t cnt = 0;
+// Image dimensions for testing - square images of dimensions (128, 160, 192, 224, 256)
+const uint32_t IMAGE_DIMENSIONS[] = {128, 160, 192, 224, 256};
+const uint32_t NUM_DIMENSIONS = 5;
 
-
-/* USER CODE BEGIN PV */
-// TODO: Define input variables
-
+// Current test dimensions - change these to test different sizes
+uint32_t width = 128;          // Current image width
+uint32_t height = 128;         // Current image height
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_TIM16_Init(void);
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
-
-int get_random_range(int min, int max);
-void random_leds(void);
 /* USER CODE BEGIN PFP */
-void TIM16_IRQHandler(void);
-void sw0_delay(uint16_t new_delay);
+uint64_t calculate_mandelbrot_fixed_point_arithmetic(int width, int height, int max_iterations);
+uint64_t calculate_mandelbrot_double(int width, int height, int max_iterations);
+
 
 /* USER CODE END PFP */
 
@@ -92,11 +90,8 @@ void sw0_delay(uint16_t new_delay);
   */
 int main(void)
 {
-
   /* USER CODE BEGIN 1 */
-    init_LCD();
-    lcd_command(CLEAR);
-    lcd_putstring("MLDKHA010");
+
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -105,260 +100,92 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+
   /* USER CODE END Init */
 
   /* Configure the system clock */
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
+
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_TIM16_Init();
   /* USER CODE BEGIN 2 */
+  //TODO: Turn on LED 0 to signify the start of the operation
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
 
-  // TODO: Start timer TIM16
-  HAL_TIM_Base_Start_IT(&htim16);
- 
+  //TODO: Record the start time
+  // Wait until HAL_GetTick() is non-zero
+
+  start_time = HAL_GetTick();
+
+  //TODO: Call the Mandelbrot Function and store the output in the checksum variable defined initially
+  checksum = calculate_mandelbrot_fixed_point_arithmetic(width, height, MAX_ITER);
+
+  //TODO: Record the end time
+  end_time = HAL_GetTick();
+
+  //TODO: Calculate the execution time
+  execution_time = end_time - start_time;
+
+  //TODO: Turn on LED 1 to signify the end of the operation
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
+
+  //TODO: Hold the LEDs on for a 1s delay
+  HAL_Delay(1000); // Delay for 1000 ms (1 second)
+
+
+  //TODO: Turn off the LEDs
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0 | GPIO_PIN_1, GPIO_PIN_RESET);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    if (HAL_GPIO_ReadPin(Button0_GPIO_Port, Button0_Pin) == GPIO_PIN_RESET){
-      HAL_Delay(10);
-      if (HAL_GPIO_ReadPin(Button0_GPIO_Port, Button0_Pin) == GPIO_PIN_RESET){
-        if (check_current_delay==999){
-          check_current_delay=499;
-        }
-        else if (check_current_delay==499){
-          check_current_delay=999;
-        }
-        sw0_delay (check_current_delay);
-      }
-    }
-    // TODO: Check pushbuttons to change timer delay
-    // Check for Button1 press (assuming pull-up, so it's low when pressed)
-    if (HAL_GPIO_ReadPin(Button1_GPIO_Port, Button1_Pin) == GPIO_PIN_RESET) {
-        // Debouncing: Wait a short time to make sure the press is stable
-        HAL_Delay(10);
-        if (HAL_GPIO_ReadPin(Button1_GPIO_Port, Button1_Pin) == GPIO_PIN_RESET) {
-          if (k == 1) {
-                k = 0;
-                //turns off all the leds
-                for (int i = 0; i < 8; i++) {
-                    HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_RESET);
-                }
-            }
-            // Button is pressed, and we want to toggle the animation state
-            j = !j;
-
-            // If the animation is now stopped, turn off all LEDs
-            if (j) {
-             
-                mode = 1; // Set mode to 1
-                i = 0;
-                direction = 1;
-                for (int i = 0; i < 8; i++) {
-                    HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_RESET);
-                }
-                //turns on the LEDs
-                HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_SET);
-          
-            }
-            else {
-                mode = 0; // Set mode to 0
-                for (int i = 0; i < 8; i++) {
-                    HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_RESET);
-                }
-            }
-            
-            // Wait for the button to be released to prevent multiple toggles
-            while (HAL_GPIO_ReadPin(Button1_GPIO_Port, Button1_Pin) == GPIO_PIN_RESET) {}
-            HAL_Delay(10); // Debounce on release
-        }
-    }
-    //button2
-    if (HAL_GPIO_ReadPin(Button2_GPIO_Port, Button2_Pin) == GPIO_PIN_RESET) {
-        // Debouncing: Wait a short time to make sure the press is stable
-        HAL_Delay(10);
-        if (HAL_GPIO_ReadPin(Button2_GPIO_Port, Button2_Pin) == GPIO_PIN_RESET) {
-          if (j == 1) {
-                j = 0;
-                for (int i = 0; i < 8; i++) {
-                    HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_RESET);
-                }
-            }
-            // Button is pressed, and we want to toggle the animation state
-            k = !k;
-
-            // If the animation is now stopped, turn off all LEDs
-            if (k) {
-              mode = 2; // Set mode to 2
-                i = 0;
-                direction = 1;
-                for (int i = 0; i < 8; i++) {
-                    HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_SET);
-                }
-                HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_RESET);
-            }else {
-                mode = 0; // Set mode to 0
-                for (int i = 0; i < 8; i++) {
-                    HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_RESET);
-                }
-            }
-            
-            // Wait for the button to be released to prevent multiple toggles
-            while (HAL_GPIO_ReadPin(Button2_GPIO_Port, Button2_Pin) == GPIO_PIN_RESET) {}
-            HAL_Delay(10); // Debounce on release
-        }
-
-    
-    // Your main loop can now check other buttons or perform other tasks
-    // For example, checking for other buttons (Button2, Button3, etc.)
-    // if (HAL_GPIO_ReadPin(Button2_GPIO_Port, Button2_Pin) == GPIO_PIN_RESET) {
-    //     // Handle other mode
-    // }
-
-
   }
-
-  // Button 3 Sparkle
-      if (HAL_GPIO_ReadPin(Button3_GPIO_Port, Button3_Pin) == GPIO_PIN_RESET) {
-          HAL_Delay(10);
-          mode=0;
-          if (HAL_GPIO_ReadPin(Button3_GPIO_Port, Button3_Pin) == GPIO_PIN_RESET) {
-              mode = (mode == 3) ? 0 : 3;
-              if (mode == 3) {
-                  for (int i = 0; i < 8; i++) {
-                    HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_RESET);
-                }
-              } 
-              while (HAL_GPIO_ReadPin(Button3_GPIO_Port, Button3_Pin) == GPIO_PIN_RESET) {}
-              
-          }
-      }
-
-      // --- Mode 3 Logic: This section runs the sparkle animation ---
-      if (mode == 3) {
-          // 1. Turn on random LEDs
-          random_leds();
-
-          // 2. Hold for a random delay (100-1500ms)
-          HAL_Delay(get_random_range(100, 1500));
-
-          // 3. Turn off LEDs one by one with a random delay (0-100ms)
-          uint8_t leds_to_turn_off_mask = leds_state_sparkle;
-          while (leds_to_turn_off_mask > 0) {
-              if (mode != 3) break; // Exit if mode changes while in the loop
-
-              int random_led_index = get_random_range(0, 7);
-              // Find an LED that's currently on
-              if ((leds_to_turn_off_mask >> random_led_index) & 0x01) {
-                  HAL_GPIO_WritePin(led_ports[random_led_index], led_pins[random_led_index], GPIO_PIN_RESET);
-                  leds_to_turn_off_mask &= ~(1 << random_led_index); // Turn off the bit
-                  HAL_Delay(get_random_range(0, 255)); // Delay between turning off
-              }
-          }
-          for (int i = 0; i < 8; i++) {
-                    HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_RESET);
-                } // Ensure all are off before repeating
-      }
   /* USER CODE END 3 */
-
-}
-}
-int get_random_range(int min, int max) {
-    return (rand() % (max - min + 1)) + min;
 }
 
-void random_leds(void) {
-    leds_state_sparkle = (uint8_t)rand();
-    for (int i = 0; i < 8; i++) {
-        if ((leds_state_sparkle >> i) & 0x01) {
-            HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_SET);
-        }
-    }
-}
-void sw0_delay (uint16_t new_delay){
-  HAL_TIM_Base_Stop_IT(&htim16);//stop the timer
-
-  __HAL_TIM_SET_AUTORELOAD(&htim16,new_delay);
-
-  HAL_TIM_Base_Start_IT(&htim16);//start the timer
-}
 /**
   * @brief System Clock Configuration
   * @retval None
   */
 void SystemClock_Config(void)
 {
-  LL_FLASH_SetLatency(LL_FLASH_LATENCY_0);
-  while(LL_FLASH_GetLatency() != LL_FLASH_LATENCY_0)
-  {
-  }
-  LL_RCC_HSI_Enable();
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
-   /* Wait till HSI is ready */
-  while(LL_RCC_HSI_IsReady() != 1)
-  {
-
-  }
-  LL_RCC_HSI_SetCalibTrimming(16);
-  LL_RCC_SetAHBPrescaler(LL_RCC_SYSCLK_DIV_1);
-  LL_RCC_SetAPB1Prescaler(LL_RCC_APB1_DIV_1);
-  LL_RCC_SetSysClkSource(LL_RCC_SYS_CLKSOURCE_HSI);
-
-   /* Wait till System clock is ready */
-  while(LL_RCC_GetSysClkSource() != LL_RCC_SYS_CLKSOURCE_STATUS_HSI)
-  {
-
-  }
-  LL_SetSystemCoreClock(8000000);
-
-   /* Update the time base */
-  if (HAL_InitTick (TICK_INT_PRIORITY) != HAL_OK)
-  {
-    Error_Handler();
-  }
-}
-
-/**
-  * @brief TIM16 Initialization Function
-  * @param None
-  * @retval None
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
   */
-static void MX_TIM16_Init(void)
-{
-
-  /* USER CODE BEGIN TIM16_Init 0 */
-
-  /* USER CODE END TIM16_Init 0 */
-
-  /* USER CODE BEGIN TIM16_Init 1 */
-
-  /* USER CODE END TIM16_Init 1 */
-  htim16.Instance = TIM16;
-  htim16.Init.Prescaler = 8000-1;
-  htim16.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim16.Init.Period = 1000-1;
-  htim16.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim16.Init.RepetitionCounter = 0;
-  htim16.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-  if (HAL_TIM_Base_Init(&htim16) != HAL_OK)
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN TIM16_Init 2 */
-  NVIC_EnableIRQ(TIM16_IRQn);
-  /* USER CODE END TIM16_Init 2 */
 
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  {
+    Error_Handler();
+  }
 }
 
 /**
@@ -368,174 +195,100 @@ static void MX_TIM16_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
-  LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
 /* USER CODE BEGIN MX_GPIO_Init_1 */
 /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
-  LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOF);
-  LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOA);
-  LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOB);
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
 
-  /**/
-  LL_GPIO_ResetOutputPin(LED0_GPIO_Port, LED0_Pin);
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0|GPIO_PIN_1, GPIO_PIN_RESET);
 
-  /**/
-  LL_GPIO_ResetOutputPin(LED1_GPIO_Port, LED1_Pin);
-
-  /**/
-  LL_GPIO_ResetOutputPin(LED2_GPIO_Port, LED2_Pin);
-
-  /**/
-  LL_GPIO_ResetOutputPin(LED3_GPIO_Port, LED3_Pin);
-
-  /**/
-  LL_GPIO_ResetOutputPin(LED4_GPIO_Port, LED4_Pin);
-
-  /**/
-  LL_GPIO_ResetOutputPin(LED5_GPIO_Port, LED5_Pin);
-
-  /**/
-  LL_GPIO_ResetOutputPin(LED6_GPIO_Port, LED6_Pin);
-
-  /**/
-  LL_GPIO_ResetOutputPin(LED7_GPIO_Port, LED7_Pin);
-
-  /**/
-  GPIO_InitStruct.Pin = Button0_Pin;
-  GPIO_InitStruct.Mode = LL_GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = LL_GPIO_PULL_UP;
-  LL_GPIO_Init(Button0_GPIO_Port, &GPIO_InitStruct);
-
-  /**/
-  GPIO_InitStruct.Pin = Button1_Pin;
-  GPIO_InitStruct.Mode = LL_GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = LL_GPIO_PULL_UP;
-  LL_GPIO_Init(Button1_GPIO_Port, &GPIO_InitStruct);
-
-  /**/
-  GPIO_InitStruct.Pin = Button2_Pin;
-  GPIO_InitStruct.Mode = LL_GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = LL_GPIO_PULL_UP;
-  LL_GPIO_Init(Button2_GPIO_Port, &GPIO_InitStruct);
-
-  /**/
-  GPIO_InitStruct.Pin = Button3_Pin;
-  GPIO_InitStruct.Mode = LL_GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = LL_GPIO_PULL_UP;
-  LL_GPIO_Init(Button3_GPIO_Port, &GPIO_InitStruct);
-
-  /**/
-  GPIO_InitStruct.Pin = LED0_Pin;
-  GPIO_InitStruct.Mode = LL_GPIO_MODE_OUTPUT;
-  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
-  LL_GPIO_Init(LED0_GPIO_Port, &GPIO_InitStruct);
-
-  /**/
-  GPIO_InitStruct.Pin = LED1_Pin;
-  GPIO_InitStruct.Mode = LL_GPIO_MODE_OUTPUT;
-  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
-  LL_GPIO_Init(LED1_GPIO_Port, &GPIO_InitStruct);
-
-  /**/
-  GPIO_InitStruct.Pin = LED2_Pin;
-  GPIO_InitStruct.Mode = LL_GPIO_MODE_OUTPUT;
-  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
-  LL_GPIO_Init(LED2_GPIO_Port, &GPIO_InitStruct);
-
-  /**/
-  GPIO_InitStruct.Pin = LED3_Pin;
-  GPIO_InitStruct.Mode = LL_GPIO_MODE_OUTPUT;
-  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
-  LL_GPIO_Init(LED3_GPIO_Port, &GPIO_InitStruct);
-
-  /**/
-  GPIO_InitStruct.Pin = LED4_Pin;
-  GPIO_InitStruct.Mode = LL_GPIO_MODE_OUTPUT;
-  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
-  LL_GPIO_Init(LED4_GPIO_Port, &GPIO_InitStruct);
-
-  /**/
-  GPIO_InitStruct.Pin = LED5_Pin;
-  GPIO_InitStruct.Mode = LL_GPIO_MODE_OUTPUT;
-  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
-  LL_GPIO_Init(LED5_GPIO_Port, &GPIO_InitStruct);
-
-  /**/
-  GPIO_InitStruct.Pin = LED6_Pin;
-  GPIO_InitStruct.Mode = LL_GPIO_MODE_OUTPUT;
-  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
-  LL_GPIO_Init(LED6_GPIO_Port, &GPIO_InitStruct);
-
-  /**/
-  GPIO_InitStruct.Pin = LED7_Pin;
-  GPIO_InitStruct.Mode = LL_GPIO_MODE_OUTPUT;
-  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
-  LL_GPIO_Init(LED7_GPIO_Port, &GPIO_InitStruct);
+  /*Configure GPIO pins : PB0 PB1 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
 }
 
-/* USER CODE BEGIN 4 */
-void TIM16_IRQHandler(void)
-{
-    HAL_TIM_IRQHandler(&htim16); // Handle base interrupt logic
+uint64_t calculate_mandelbrot_fixed_point_arithmetic(int width, int height, int max_iterations) {
+    uint64_t checksum = 0;
 
-  }
-/* USER CODE BEGIN 0 */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-  if (htim->Instance == TIM16) {
-        switch (mode) {
-            case 1: // Button 1 animation: Single LED ON
-                HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_RESET);
-                i += direction;
-                if (i >= 7) {
-                    direction = -1;
-                    if (i > 7) i = 7;
-                } else if (i <= 0) {
-                    direction = 1;
-                    if (i < 0) i = 0;
-                }
-                HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_SET);
-                break;
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            // Scale coordinates into fixed-point
+            // 3.5 in fixed-point = 3.5 * FIXED_POINT_SCALE
+            // 2.5 in fixed-point = 2.5 * FIXED_POINT_SCALE
+            int64_t x0 = ((int64_t)x * (int64_t)(3.5 * FIXED_POINT_SCALE)) / width
+                         - (int64_t)(2.5 * FIXED_POINT_SCALE);
+            int64_t y0 = ((int64_t)y * (int64_t)(2.0 * FIXED_POINT_SCALE)) / height
+                         - FIXED_POINT_SCALE;
 
-            case 2: // Button 2 animation: Single LED OFF
-                HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_SET);
-                i += direction;
-                if (i >= 7) {
-                    direction = -1;
-                    if (i > 7) i = 7;
-                } else if (i <= 0) {
-                    direction = 1;
-                    if (i < 0) i = 0;
+            int64_t xi = 0;
+            int64_t yi = 0;
+            int iteration = 0;
+
+            while (iteration < max_iterations) {
+                int64_t xi2 = (xi * xi) / FIXED_POINT_SCALE;
+                int64_t yi2 = (yi * yi) / FIXED_POINT_SCALE;
+
+                if (xi2 + yi2 > ESCAPE_RADIUS_SQUARED) {
+                    break;
                 }
-                HAL_GPIO_WritePin(led_ports[i], led_pins[i], GPIO_PIN_RESET);
-                break;
-            default:
-                break;
+
+                int64_t old_xi = xi;  // store old xi before updating
+                xi = xi2 - yi2 + x0;
+                yi = (2 * old_xi * yi) / FIXED_POINT_SCALE + y0;
+
+                iteration++;
+            }
+
+            checksum += iteration;
         }
     }
-}
-/* USER CODE END 0 */
 
+    return checksum;
+}
+
+uint64_t calculate_mandelbrot_double(int width, int height, int max_iterations) {
+    uint64_t checksum = 0;
+
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            double x0 = ((double)x / width) * 3.5 - 2.5;
+            double y0 = ((double)y / height) * 2.0 - 1.0;
+
+            double xi = 0.0;
+            double yi = 0.0;
+            int iteration = 0;
+
+            while (iteration < max_iterations) {
+                double xi2 = xi * xi;
+                double yi2 = yi * yi;
+
+                if (xi2 + yi2 > 4.0) {
+                    break;
+                }
+
+                double temp = xi2 - yi2 + x0;  // new xi
+                yi = 2.0 * xi * yi + y0;       // new yi (uses old xi)
+                xi = temp;                     // update xi
+
+                iteration++;
+            }
+
+            checksum += iteration;
+        }
+    }
+
+    return checksum;
+}
 
 /* USER CODE END 4 */
 

@@ -36,27 +36,23 @@ ASM_Main:
 
 main_loop:
 
-    @ --- Read switches ---
+    @  Read switches 
     LDR   R0, GPIOA_BASE
     LDR   R3, [R0, #0x10]   @ GPIOA IDR
 
-    @ --- Defaults: increment=1, long delay ---
-    MOVS  R4, #1
-    BL    long_delay
-    B     write_leds
+    @ Check both pressed 
+    MOVS  R5, #3			@ sw0 + sw1 mask
+    TST   R5, R3
+    BEQ   both_pressed      @ move if both pressed
 
-    @ --- Use R5 and R6 as temporary registers for bit extraction ---
-    MOVS  R5, R3             @ copy input
-    LSRS  R5, R5, #0         @ SW0 to bit0
-    MOVS  R6, R3
-    LSRS  R6, R6, #1         @ SW1 to bit0
+    MOVS  R5, #1			@ sw0 mask
+    TST   R5, R3
+    BEQ   sw0_only			@ move if sw0 pressed
 
-    @ --- Check both pressed ---
-    CMP   R5, #0
-    BEQ   check_sw1_only      @ SW0 not pressed?
-    CMP   R6, #0
-    BEQ   sw0_only             @ SW1 not pressed → only SW0
-    B     both_pressed
+    MOVS  R5, #2			@ sw1 mask
+    TST   R5, R3
+    BEQ   sw1_only             @ move if sw1 pressed
+    B     default			@ do default otherwises
 
 check_sw1_only:
     CMP   R6, #0
@@ -78,12 +74,18 @@ sw1_only:
     BL    short_delay
     B     write_leds
 
-write_leds:
-    STR   R2, [R1, #0x14]     @ Write to LEDs
-    ADDS  R2, R2, R4
-    @B     main_loop
+default:
+    @ Defaults: increment=1, long delay
+    MOVS  R4, #1
+    BL    long_delay
+    B 	  write_leds
 
-@ --- Delay routines ---
+write_leds:
+	ADDS  R2, R2, R4
+    STR   R2, [R1, #0x14]     @ Write to LEDs
+    B     main_loop
+
+@ Delay routines 
 long_delay:
     LDR   R5, LONG_DELAY_CNT
 long_loop:

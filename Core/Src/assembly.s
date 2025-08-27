@@ -3,7 +3,7 @@
  *
  */
 
- @ DO NOT EDIT
+@ DO NOT EDIT
 	.syntax unified
     .text @code starts from here
     .global ASM_Main @ASM_Main tells the compliter that this is where the first instruction starts. first label
@@ -27,132 +27,154 @@ ASM_Main:
 	LDR R2, MODER_OUTPUT
 	STR R2, [R1, #0]
 	MOVS R2, #0         	@ NOTE: R2 will be dedicated to holding the value on the LEDs
+
 @ TODO: Add code, labels and logic for button checks and LED patterns
 main_loop:
-    @ --- Read switches ---
+    @ Read what switches are pressed
     LDR   R0, GPIOA_BASE
     LDR   R3, [R0, #0x10]   @ GPIOA IDR
 
-    @ --- Check SW3 first (freeze functionality) ---
-    MOVS  R5, R3             @ copy input
-    LSRS  R5, R5, #3         @ SW3 to bit0
+    @ Task 5: Check if SW3 is pressed to freeze everything
+    MOVS  R5, R3
+    LSRS  R5, R5, #3         @ Shift SW3 bit to position 0
     MOVS  R7, #1
-    ANDS  R5, R5, R7         @ mask bit 0
+    ANDS  R5, R5, R7         @ Isolate just that bit
     CMP   R5, #0
-    BEQ   freeze_pattern     @ SW3 pressed (active low)
+    BEQ   freeze_pattern     @ If pressed, freeze the current pattern
 
-    @ --- Check SW2 (set to 0xAA) ---
-    MOVS  R5, R3             @ copy input
-    LSRS  R5, R5, #2         @ SW2 to bit0
+
+    @ Task 4: Check if SW2 is pressed to set pattern to 0xAA
+    MOVS  R5, R3
+    LSRS  R5, R5, #2         @ Shift SW2 bit to position 0
     MOVS  R7, #1
-    ANDS  R5, R5, R7         @ mask bit 0
+    ANDS  R5, R5, R7         @ Isolate just that bit
     CMP   R5, #0
-    BEQ   set_to_AA          @ SW2 pressed (active low)
+    BEQ   set_to_AA          @ If pressed, jump to 0xAA pattern
 
-    @ --- Use R5 and R6 as temporary registers for bit extraction ---
-    MOVS  R5, R3             @ copy input
-    LSRS  R5, R5, #0         @ SW0 to bit0
+
+    @ Extract SW0 and SW1 bits for normal operation
+    MOVS  R5, R3             @ Get SW0 status
+    LSRS  R5, R5, #0
     MOVS  R7, #1
-    ANDS  R5, R5, R7         @ mask bit 0
-    MOVS  R6, R3
-    LSRS  R6, R6, #1         @ SW1 to bit0
-    ANDS  R6, R6, R7         @ mask bit 0
+    ANDS  R5, R5, R7
+    MOVS  R6, R3             @ Get SW1 status
+    LSRS  R6, R6, #1
+    ANDS  R6, R6, R7
 
-    @ --- Check both pressed ---
+
+    @ Figure out which switches are pressed
     CMP   R5, #0
-    BNE   check_sw1_only     @ SW0 not pressed?
+    BNE   check_sw1_only     @ SW0 not pressed, check SW1
     CMP   R6, #0
-    BNE   sw0_only           @ SW1 not pressed → only SW0
-    B     both_pressed
+    BNE   sw0_only           @ Only SW0 is pressed
+    B     both_pressed       @ Both switches pressed
+
 
 check_sw1_only:
     CMP   R6, #0
-    BNE   default            @ neither pressed
-    B     sw1_only
+    BNE   default            @ No switches pressed
+    B     sw1_only           @ Only SW1 pressed
 
+
+@ Task 5: Freeze - don't change the LED pattern at all
 freeze_pattern:
-    @ Don't increment, just delay and write same value
-    MOVS  R4, #0
+    MOVS  R4, #0             @ Set increment to zero
     BL    long_delay
     B     write_leds
 
+
+@ Task 4: Set LEDs to 0xAA pattern but still respond to other switches
 set_to_AA:
-    @ Set pattern to 0xAA
-    MOVS  R2, #0xAA
-    @ Still check SW0/SW1 for increment behavior
-    MOVS  R5, R3             @ copy input
-    LSRS  R5, R5, #0         @ SW0 to bit0
+    MOVS  R2, #0xAA          @ Set the special pattern
+
+    @ Even with 0xAA, SW0/SW1 still control timing and increment
+    MOVS  R5, R3
+    LSRS  R5, R5, #0
     MOVS  R7, #1
-    ANDS  R5, R5, R7         @ mask bit 0
+    ANDS  R5, R5, R7
     MOVS  R6, R3
-    LSRS  R6, R6, #1         @ SW1 to bit0
-    ANDS  R6, R6, R7         @ mask bit 0
+    LSRS  R6, R6, #1
+    ANDS  R6, R6, R7
 
     CMP   R5, #0
-    BNE   aa_check_sw1_only  @ SW0 not pressed?
+    BNE   aa_check_sw1_only
     CMP   R6, #0
-    BNE   aa_sw0_only        @ SW1 not pressed → only SW0
+    BNE   aa_sw0_only
     B     aa_both_pressed
+
 
 aa_check_sw1_only:
     CMP   R6, #0
-    BNE   aa_default         @ neither pressed
+    BNE   aa_default
     B     aa_sw1_only
 
+
+@ 0xAA pattern behaviors with different switch combinations
 aa_both_pressed:
-    MOVS  R4, #2
+    MOVS  R4, #2             @ Increment by 2, fast timing
     BL    short_delay
     B     write_leds
 
 aa_sw0_only:
-    MOVS  R4, #2
+    MOVS  R4, #2             @ Increment by 2, slow timing
     BL    long_delay
     B     write_leds
 
 aa_sw1_only:
-    MOVS  R4, #1
+    MOVS  R4, #1             @ Increment by 1, fast timing
     BL    short_delay
     B     write_leds
 
 aa_default:
-    MOVS  R4, #1
+    MOVS  R4, #1             @ Increment by 1, slow timing
     BL    long_delay
     B     write_leds
 
+
+@ Normal switch behaviors (Tasks 1-3)
 both_pressed:
-    MOVS  R4, #2
+    MOVS  R4, #2             @ SW0+SW1: count by 2, fast
     BL    short_delay
     B     write_leds
+
 sw0_only:
-    MOVS  R4, #2
+    MOVS  R4, #2             @ SW0 only: count by 2, slow
     BL    long_delay
     B     write_leds
+
 sw1_only:
-    MOVS  R4, #1
+    MOVS  R4, #1             @ SW1 only: count by 1, fast
     BL    short_delay
     B     write_leds
+
 default:
-    @ --- Defaults: increment=1, long delay ---
-    MOVS  R4, #1
+    MOVS  R4, #1             @ No switches: count by 1, slow
     BL    long_delay
     B     write_leds
+
+
+@ Update the LEDs and loop back
 write_leds:
-    STR   R2, [R1, #0x14]     @ Write to LEDs
-    ADDS  R2, R2, R4
-    B     main_loop           @ Fixed: added loop back
-@ --- Delay routines ---
+    STR   R2, [R1, #0x14]    @ Show current pattern on LEDs
+    ADDS  R2, R2, R4         @ Add the increment for next time
+    B     main_loop          @ Do it all again
+
+@ Timing delays
 long_delay:
     LDR   R5, LONG_DELAY_CNT
 long_loop:
     SUBS  R5, R5, #1
     BNE   long_loop
     BX    LR
+
 short_delay:
     LDR   R5, SHORT_DELAY_CNT
 short_loop:
     SUBS  R5, R5, #1
     BNE   short_loop
     BX    LR
+
+
 @ LITERALS; DO NOT EDIT
 	.align
 RCC_BASE: 			.word 0x40021000
@@ -160,6 +182,8 @@ AHBENR_GPIOAB: 		.word 0b1100000000000000000
 GPIOA_BASE:  		.word 0x48000000
 GPIOB_BASE:  		.word 0x48000400
 MODER_OUTPUT: 		.word 0x5555
+
+
 @ TODO: Add your own values for these delays
 LONG_DELAY_CNT: 	.word 1400000 @frequency/cycles*delay
-SHORT_DELAY_CNT: 	.word 300000
+SHORT_DELAY_CNT: 	.word 600000
